@@ -1,4 +1,4 @@
-# mcp-trace
+# mcp-lens
 
 stdio proxy for MCP servers. wraps any MCP server and shows every 
 tool call, latency and failure live in terminal.
