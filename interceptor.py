@@ -272,7 +272,7 @@ async def read_stdin():
     loop = asyncio.get_event_loop()
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)
-    transport, _ = await loop.connect_read_pipe(lambda: protocol, sys.stdin.buffer)
+    await loop.connect_read_pipe(lambda: protocol, sys.stdin.buffer)
 
     buffer = b""
     while True:
