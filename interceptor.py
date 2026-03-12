@@ -245,7 +245,6 @@ async def pipe_stream(reader: asyncio.StreamReader,
 
 
 async def run_proxy(cmd: list[str]):
-    """Launch the MCP server as a subprocess and proxy its stdio."""
     render_header()
     sys.stderr.write(
         f"{C.DIM}Intercepting: {' '.join(cmd)}{C.RESET}\n"
@@ -259,7 +258,6 @@ async def run_proxy(cmd: list[str]):
         stderr=asyncio.subprocess.PIPE,
     )
 
-    # Pipe stderr from subprocess directly to our stderr (server logs)
     async def forward_stderr():
         while True:
             line = await proc.stderr.readline()
@@ -268,33 +266,31 @@ async def run_proxy(cmd: list[str]):
             sys.stderr.write(f"{C.DIM}[server] {line.decode(errors='replace').rstrip()}{C.RESET}\n")
             sys.stderr.flush()
 
-async def read_stdin():
-    loop = asyncio.get_event_loop()
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await loop.connect_read_pipe(lambda: protocol, sys.stdin.buffer)
-
-    buffer = b""
-    while True:
-        try:
-            chunk = await reader.read(4096)
-            if not chunk:
+    async def read_stdin():
+        loop = asyncio.get_event_loop()
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        await loop.connect_read_pipe(lambda: protocol, sys.stdin.buffer)
+        buffer = b""
+        while True:
+            try:
+                chunk = await reader.read(4096)
+                if not chunk:
+                    break
+                buffer += chunk
+                while b"\n" in buffer:
+                    line, buffer = buffer.split(b"\n", 1)
+                    line = line.strip()
+                    if not line:
+                        continue
+                    intercepted = process_message(line, "client→server")
+                    proc.stdin.write(intercepted + b"\n")
+                    await proc.stdin.drain()
+            except Exception:
                 break
-            buffer += chunk
-            while b"\n" in buffer:
-                line, buffer = buffer.split(b"\n", 1)
-                line = line.strip()
-                if not line:
-                    continue
-                intercepted = process_message(line, "client→server")
-                proc.stdin.write(intercepted + b"\n")
-                await proc.stdin.drain()
-        except Exception:
-            break
-    proc.stdin.close()
+        proc.stdin.close()
 
     async def read_stdout():
-        """Read from subprocess stdout and forward to our stdout (to Claude)."""
         buffer = b""
         while True:
             try:
@@ -308,23 +304,7 @@ async def read_stdin():
                     if not line:
                         continue
                     intercepted = process_message(line, "server→client")
-                    sys.stdout.buffer.write(intercepted + b"\n")
-                    sys.stdout.buffer.flush()
-            except Exception:
-                break
-
-    try:
-        await asyncio.gather(
-            read_stdin(),
-            read_stdout(),
-            forward_stderr(),
-        )
-    finally:
-        render_summary()
-        try:
-            proc.terminate()
-        except Exception:
-            pass
+                    sys.stdout.buffer.write(intercepted + b"\n"
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
