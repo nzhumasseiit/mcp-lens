@@ -304,7 +304,23 @@ async def run_proxy(cmd: list[str]):
                     if not line:
                         continue
                     intercepted = process_message(line, "server→client")
-                    sys.stdout.buffer.write(intercepted + b"\n"
+                    sys.stdout.buffer.write(intercepted + b"\n")
+                    sys.stdout.buffer.flush()
+            except Exception:
+                break
+
+    try:
+        await asyncio.gather(
+            read_stdin(),
+            read_stdout(),
+            forward_stderr(),
+        )
+    finally:
+        render_summary()
+        try:
+            proc.terminate()
+        except Exception:
+            pass
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
