@@ -1,7 +1,9 @@
 # mcp-lens
 
 zero-dependency single-file Python proxy for MCP servers.
+
 wraps any MCP server, shows every tool call, latency and failure live in terminal.
+
 no dependencies. no code changes needed. just python3.
 
 ## usage
