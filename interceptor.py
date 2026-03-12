@@ -310,11 +310,13 @@ async def run_proxy(cmd: list[str]):
                 break
 
     try:
-        await asyncio.gather(
-            read_stdin(),
-            read_stdout(),
-            forward_stderr(),
-        )
+        asyncio.create_task(read_stdin())
+        asyncio.create_task(read_stdout())
+        asyncio.create_task(forward_stderr())
+        
+        await proc.wait()
+
+await proc.wait()
     finally:
         render_summary()
         try:
