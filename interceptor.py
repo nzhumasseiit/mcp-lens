@@ -267,47 +267,20 @@ async def run_proxy(cmd: list[str]):
             sys.stderr.flush()
 
     async def read_stdin():
-        loop = asyncio.get_event_loop()
-        reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin.buffer)
-        buffer = b""
-        while True:
-            try:
-                chunk = await reader.read(4096)
-                if not chunk:
-                    break
-                buffer += chunk
-                while b"\n" in buffer:
-                    line, buffer = buffer.split(b"\n", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-                    intercepted = process_message(line, "client→server")
-                    proc.stdin.write(intercepted + b"\n")
-                    await proc.stdin.drain()
-            except Exception:
-                break
-        proc.stdin.close()
-
+    while True:
+        chunk = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.buffer.read, 4096)
+        if not chunk:
+            break
+        proc.stdin.write(chunk)
+        await proc.stdin.drain()
+        
     async def read_stdout():
-        buffer = b""
-        while True:
-            try:
-                chunk = await proc.stdout.read(4096)
-                if not chunk:
-                    break
-                buffer += chunk
-                while b"\n" in buffer:
-                    line, buffer = buffer.split(b"\n", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-                    intercepted = process_message(line, "server→client")
-                    sys.stdout.buffer.write(intercepted + b"\n")
-                    sys.stdout.buffer.flush()
-            except Exception:
-                break
+    while True:
+        chunk = await proc.stdout.read(4096)
+        if not chunk:
+            break
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
 
     try:
         asyncio.create_task(read_stdin())
@@ -315,8 +288,7 @@ async def run_proxy(cmd: list[str]):
         asyncio.create_task(forward_stderr())
         
         await proc.wait()
-
-await proc.wait()
+        
     finally:
         render_summary()
         try:
