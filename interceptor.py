@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-mcp-trace: stdio proxy for MCP servers.
+mcp-lens: stdio proxy for MCP servers.
 wraps any MCP server, logs every tool call live.
 
 usage: python interceptor.py npx -y @modelcontextprotocol/server-filesystem /tmp
