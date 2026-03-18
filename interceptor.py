@@ -276,11 +276,12 @@ async def run_proxy(cmd: list[str]):
         if proc.stdin is None:
             return
 
-        loop = asyncio.get_event_loop()
-        parse_buffer = b""
+        # Important: MCP stdio is newline-delimited JSON. Reading fixed-size chunks
+        # from stdin can block waiting for more bytes, delaying forwarding and causing
+        # client timeouts. Use readline() to forward each message promptly.
         while True:
-            chunk = await loop.run_in_executor(None, sys.stdin.buffer.read, 4096)
-            if not chunk:
+            line = await asyncio.to_thread(sys.stdin.buffer.readline)
+            if not line:
                 try:
                     proc.stdin.close()
                 except Exception:
@@ -288,16 +289,12 @@ async def run_proxy(cmd: list[str]):
                 break
 
             # forward exactly what we received
-            proc.stdin.write(chunk)
+            proc.stdin.write(line)
             await proc.stdin.drain()
 
-            # parse copy for logging (never affects forwarded bytes)
-            parse_buffer += chunk
-            while b"\n" in parse_buffer:
-                line, parse_buffer = parse_buffer.split(b"\n", 1)
-                stripped = line.strip()
-                if stripped:
-                    process_message(stripped, "client→server")
+            stripped = line.strip()
+            if stripped:
+                process_message(stripped, "client→server")
 
     async def _proxy_proc_stdout_to_stream_bytes():
         """
