@@ -28,6 +28,21 @@ point claude desktop at it in claude_desktop_config.json:
 }
 ```
 
+## troubleshooting (Claude Desktop crashes / can't connect)
+
+- **Use absolute paths**: Claude Desktop often runs with a minimal `PATH`, so `"python3"` and `"npx"` may not be found.
+  - Find paths:
+    - `which python3`
+    - `which npx`
+- **Use a modern Python**: `python3.9+` recommended.
+- **Sanity check in Terminal** (same user account as Claude):
+
+```bash
+/ABS/PATH/TO/python3 /ABS/PATH/TO/interceptor.py /ABS/PATH/TO/npx -y @modelcontextprotocol/server-filesystem /tmp
+```
+
+Then paste that same absolute-path command into `claude_desktop_config.json`.
+
 ## why
 
 official MCP inspector = postman (manual testing)

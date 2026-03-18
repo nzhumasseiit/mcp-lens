@@ -6,6 +6,8 @@ wraps any MCP server, logs every tool call live.
 usage: python interceptor.py npx -y @modelcontextprotocol/server-filesystem /tmp
 """
 
+from __future__ import annotations
+
 import sys
 import json
 import time
@@ -266,29 +268,79 @@ async def run_proxy(cmd: list[str]):
             sys.stderr.write(f"{C.DIM}[server] {line.decode(errors='replace').rstrip()}{C.RESET}\n")
             sys.stderr.flush()
 
-    async def read_stdin():
-    while True:
-        chunk = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.buffer.read, 4096)
-        if not chunk:
-            break
-        proc.stdin.write(chunk)
-        await proc.stdin.drain()
-        
-    async def read_stdout():
-    while True:
-        chunk = await proc.stdout.read(4096)
-        if not chunk:
-            break
-        sys.stdout.buffer.write(chunk)
-        sys.stdout.buffer.flush()
+    async def _proxy_stream_bytes_to_proc_stdin():
+        """
+        Read bytes from our stdin, intercept newline-delimited JSON-RPC messages,
+        and forward the original bytes to the subprocess stdin.
+        """
+        if proc.stdin is None:
+            return
+
+        loop = asyncio.get_event_loop()
+        buffer = b""
+        while True:
+            chunk = await loop.run_in_executor(None, sys.stdin.buffer.read, 4096)
+            if not chunk:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
+                break
+
+            buffer += chunk
+            while b"\n" in buffer:
+                line, buffer = buffer.split(b"\n", 1)
+                stripped = line.strip()
+                if stripped:
+                    process_message(stripped, "client→server")
+                proc.stdin.write(line + b"\n")
+                await proc.stdin.drain()
+
+            # forward any non-newline-terminated bytes as-is (don’t parse yet)
+            if buffer and b"\n" not in buffer:
+                proc.stdin.write(buffer)
+                await proc.stdin.drain()
+                buffer = b""
+
+    async def _proxy_proc_stdout_to_stream_bytes():
+        """
+        Read bytes from subprocess stdout, intercept newline-delimited JSON-RPC
+        responses/notifications, and forward the original bytes to our stdout.
+        """
+        if proc.stdout is None:
+            return
+
+        buffer = b""
+        while True:
+            chunk = await proc.stdout.read(4096)
+            if not chunk:
+                break
+
+            buffer += chunk
+            while b"\n" in buffer:
+                line, buffer = buffer.split(b"\n", 1)
+                stripped = line.strip()
+                if stripped:
+                    process_message(stripped, "server→client")
+                sys.stdout.buffer.write(line + b"\n")
+                sys.stdout.buffer.flush()
+
+            if buffer and b"\n" not in buffer:
+                sys.stdout.buffer.write(buffer)
+                sys.stdout.buffer.flush()
+                buffer = b""
 
     try:
-        asyncio.create_task(read_stdin())
-        asyncio.create_task(read_stdout())
-        asyncio.create_task(forward_stderr())
-        
+        t_in = asyncio.create_task(_proxy_stream_bytes_to_proc_stdin())
+        t_out = asyncio.create_task(_proxy_proc_stdout_to_stream_bytes())
+        t_err = asyncio.create_task(forward_stderr())
+
         await proc.wait()
-        
+
+        for t in (t_in, t_out, t_err):
+            if not t.done():
+                t.cancel()
+        await asyncio.gather(t_in, t_out, t_err, return_exceptions=True)
     finally:
         render_summary()
         try:
