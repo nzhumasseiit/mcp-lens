@@ -270,14 +270,14 @@ async def run_proxy(cmd: list[str]):
 
     async def _proxy_stream_bytes_to_proc_stdin():
         """
-        Read bytes from our stdin, intercept newline-delimited JSON-RPC messages,
-        and forward the original bytes to the subprocess stdin.
+        Read bytes from our stdin and forward them byte-for-byte to subprocess stdin.
+        Separately, parse newline-delimited JSON-RPC from a copy for logging.
         """
         if proc.stdin is None:
             return
 
         loop = asyncio.get_event_loop()
-        buffer = b""
+        parse_buffer = b""
         while True:
             chunk = await loop.run_in_executor(None, sys.stdin.buffer.read, 4096)
             if not chunk:
@@ -287,48 +287,43 @@ async def run_proxy(cmd: list[str]):
                     pass
                 break
 
-            buffer += chunk
-            while b"\n" in buffer:
-                line, buffer = buffer.split(b"\n", 1)
+            # forward exactly what we received
+            proc.stdin.write(chunk)
+            await proc.stdin.drain()
+
+            # parse copy for logging (never affects forwarded bytes)
+            parse_buffer += chunk
+            while b"\n" in parse_buffer:
+                line, parse_buffer = parse_buffer.split(b"\n", 1)
                 stripped = line.strip()
                 if stripped:
                     process_message(stripped, "client→server")
-                proc.stdin.write(line + b"\n")
-                await proc.stdin.drain()
-
-            # forward any non-newline-terminated bytes as-is (don’t parse yet)
-            if buffer and b"\n" not in buffer:
-                proc.stdin.write(buffer)
-                await proc.stdin.drain()
-                buffer = b""
 
     async def _proxy_proc_stdout_to_stream_bytes():
         """
-        Read bytes from subprocess stdout, intercept newline-delimited JSON-RPC
-        responses/notifications, and forward the original bytes to our stdout.
+        Read bytes from subprocess stdout and forward them byte-for-byte to our stdout.
+        Separately, parse newline-delimited JSON-RPC from a copy for logging.
         """
         if proc.stdout is None:
             return
 
-        buffer = b""
+        parse_buffer = b""
         while True:
             chunk = await proc.stdout.read(4096)
             if not chunk:
                 break
 
-            buffer += chunk
-            while b"\n" in buffer:
-                line, buffer = buffer.split(b"\n", 1)
+            # forward exactly what we received
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+
+            # parse copy for logging (never affects forwarded bytes)
+            parse_buffer += chunk
+            while b"\n" in parse_buffer:
+                line, parse_buffer = parse_buffer.split(b"\n", 1)
                 stripped = line.strip()
                 if stripped:
                     process_message(stripped, "server→client")
-                sys.stdout.buffer.write(line + b"\n")
-                sys.stdout.buffer.flush()
-
-            if buffer and b"\n" not in buffer:
-                sys.stdout.buffer.write(buffer)
-                sys.stdout.buffer.flush()
-                buffer = b""
 
     try:
         t_in = asyncio.create_task(_proxy_stream_bytes_to_proc_stdin())
